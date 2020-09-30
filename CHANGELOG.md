@@ -2,6 +2,21 @@
 
 > The Change Log of Vue2 Timepicker `vue2-timepicker`
 
+## v 1.1.5
+
+### New
+
+- Support changing dropdown direction with the `drop-direction` property. It accepts three string values: `"up"`, `"auto"` and `"down"` _(default)_.
+- Additional `container-id` and `drop-offset-height` as helpers for the **"auto"** drop direction. Please check the documentation for more info.
+
+## v 1.1.4
+
+### New
+
+- Support customized clear button and dropdown button with the `clearButton` and `dropdownButton` **v-slot** (Thanks to @jost-s).
+- Added new `icon` **v-slot** for displaying an extra input icon.
+- Added new `fixed-dropdown-button` property, to make the dropdown button always visible.
+
 ## v 1.1.3
 
 ### Improvements

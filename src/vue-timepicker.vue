@@ -21,7 +21,8 @@ const DEFAULT_OPTIONS = {
   advancedKeyboard: false,
   hideDropdown: false,
   blurDelay: 300,
-  manualInputTimeout: 1000
+  manualInputTimeout: 1000,
+  dropOffsetHeight: 160
 }
 
 export default {
@@ -62,12 +63,18 @@ export default {
 
     blurDelay: { type: [ Number, String ] },
     advancedKeyboard: { type: Boolean, default: false },
-    lazy: { type: Boolean, default: false },
 
+    lazy: { type: Boolean, default: false },
     autoScroll: { type: Boolean, default: false },
+
+    dropDirection: { type: String, default: 'down' },
+    dropOffsetHeight: { type: [ Number, String ] },
+    containerId: { type: String },
+
     manualInput: { type: Boolean, default: false },
     manualInputTimeout: { type: [ Number, String ] },
     hideDropdown: { type: Boolean, default: false },
+    fixedDropdownButton: { type: Boolean, default: false },
 
     debugMode: { type: Boolean, default: false }
   },
@@ -101,7 +108,8 @@ export default {
       selectionTimer: undefined,
       kbInputTimer: undefined,
       kbInputLog: '',
-      bakCurrentPos: null
+      bakCurrentPos: undefined,
+      forceDropOnTop: false
     }
   },
 
@@ -202,6 +210,10 @@ export default {
         options.manualInputTimeout = +this.manualInputTimeout
       }
 
+      if (this.dropOffsetHeight && +this.dropOffsetHeight > 0) {
+        options.dropOffsetHeight = +this.dropOffsetHeight
+      }
+
       return options
     },
 
@@ -279,6 +291,14 @@ export default {
         return false
       }
       return !this.inputIsEmpty
+    },
+
+    showDropdownBtn () {
+      if (this.fixedDropdownButton) { return true }
+      if (this.opts.hideDropdown && this.isActive && !this.showDropdown) {
+        return true
+      }
+      return false
     },
 
     baseOn12Hours () {
@@ -528,6 +548,17 @@ export default {
 
     hasInvalidInput () {
       return Boolean(this.invalidValues && this.invalidValues.length)
+    },
+
+    autoDirectionEnabled () {
+      return this.dropDirection === 'auto'
+    },
+
+    dropdownDirClass () {
+      if (this.autoDirectionEnabled) {
+        return this.forceDropOnTop ? 'drop-up' : 'drop-down'
+      }
+      return this.dropDirection === 'up' ? 'drop-up' : 'drop-down'      
     }
   },
 
@@ -1125,15 +1156,22 @@ export default {
     },
 
     setDropdownState (toShow, fromUserClick = false) {
-      this.showDropdown = toShow
       if (toShow) {
         this.keepFocusing()
+        if (this.autoDirectionEnabled) {
+          this.checkDropDirection()
+        }
+        this.showDropdown = true
         this.$emit('open') 
         if (fromUserClick) {
+          if (this.fixedDropdownButton) {
+            this.isActive = true
+          }
           this.$emit('blur')
           this.checkForAutoScroll()
         }
       } else {
+        this.showDropdown = false
         this.$emit('close')
       }
     },
@@ -1737,6 +1775,28 @@ export default {
       return inputString
     },
 
+    checkDropDirection () {
+      if (!this.$el) { return }
+      let container
+      if (this.containerId && this.containerId.length) {
+        container = document.getElementById(this.containerId)
+        if (!container && this.debugMode) {
+          this.debugLog(`Container with id "${this.containerId}" not found. Fallback to document body.`)
+        }
+      }
+      const el = this.$el
+      let spaceDown
+      if (container && container.offsetHeight) {
+        // Valid container found
+        spaceDown = (container.offsetTop + container.offsetHeight) - (el.offsetTop + el.offsetHeight)
+      } else {
+        // Fallback to document body
+        const docHeight = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight, document.body.offsetHeight, document.documentElement.offsetHeight, document.body.clientHeight, document.documentElement.clientHeight)
+        spaceDown = docHeight - (el.offsetTop + el.offsetHeight)
+      }
+      this.forceDropOnTop = this.opts.dropOffsetHeight > spaceDown
+    },
+
     //
     // Helpers
     //
@@ -1877,7 +1937,7 @@ export default {
 <template>
 <span class="vue__time-picker time-picker" :style="inputWidthStyle">
   <input type="text" class="display-time" ref="input"
-         :class="[inputClass, {'is-empty': inputIsEmpty, 'invalid': hasInvalidInput, 'all-selected': allValueSelected, 'disabled': disabled}]"
+         :class="[inputClass, {'is-empty': inputIsEmpty, 'invalid': hasInvalidInput, 'all-selected': allValueSelected, 'disabled': disabled, 'has-custom-icon': $slots && $slots.icon }]"
          :style="inputWidthStyle"
          :id="id"
          :name="name"
@@ -1896,12 +1956,24 @@ export default {
          @compositionend="onCompostionEnd"
          @paste="pasteHandler"
          @keydown.esc.exact="escBlur" />
-  <div class="controls" v-if="showClearBtn || opts.hideDropdown" tabindex="-1">
-    <span class="clear-btn" v-if="!isActive && showClearBtn" @click="clearTime" tabindex="-1">&times;</span>
-    <span class="show-dropdown-btn" v-if="opts.hideDropdown && isActive && !showDropdown" @click="setDropdownState(true, true)" @mousedown="keepFocusing" tabindex="-1">&dtrif;</span>
+  <div class="controls" v-if="showClearBtn || showDropdownBtn" tabindex="-1">
+    <span v-if="!isActive && showClearBtn" class="clear-btn" tabindex="-1"
+          :class="{'has-custom-btn': $slots && $slots.clearButton }"
+          @click="clearTime">
+      <slot name="clearButton"><span class="char">&times;</span></slot>
+    </span>
+    <span v-if="showDropdownBtn" class="dropdown-btn" tabindex="-1"
+          :class="{'has-custom-btn': $slots && $slots.dropdownButton }"
+          @click="setDropdownState(fixedDropdownButton ? !showDropdown : true, true)"
+          @mousedown="keepFocusing">
+      <slot name="dropdownButton"><span class="char">&dtrif;</span></slot>
+    </span>
   </div>
+  <div class="custom-icon" v-if="$slots && $slots.icon"><slot name="icon"></slot></div>
   <div class="time-picker-overlay" v-if="showDropdown" @click="toggleActive" tabindex="-1"></div>
-  <div class="dropdown" v-show="showDropdown" :style="inputWidthStyle" tabindex="-1" @mouseup="keepFocusing" @click.stop="">
+  <div class="dropdown" v-show="showDropdown" tabindex="-1"
+       :class="[dropdownDirClass]" :style="inputWidthStyle"
+       @mouseup="keepFocusing" @click.stop="">
     <div class="select-list" :style="inputWidthStyle" tabindex="-1">
       <!-- Common Keyboard Support: less event listeners -->
       <template v-if="!advancedKeyboard">
@@ -2080,6 +2152,10 @@ export default {
   font-size: 1em;
 }
 
+.vue__time-picker input.has-custom-icon {
+  padding-left: 1.8em;
+}
+
 .vue__time-picker input.display-time.invalid:not(.skip-error-style) {
   border-color: #cc0033;
   outline-color: #cc0033;
@@ -2108,27 +2184,23 @@ export default {
 
 .vue__time-picker .controls > * {
   cursor: pointer;
-
-  width: 1.3em;
+  
+  width: auto;
   display: flex;
   flex-flow: column nowrap;
   justify-content: center;
   align-items: center;
-  text-align: center;
+
+  padding: 0 0.35em;
 
   color: #d2d2d2;
-  line-height: 1em;
-  font-size: 1.1em;
+  line-height: 100%;
   font-style: normal;
 
   /* Resume pointer-events on children components */
   pointer-events: initial;
 
-  /* Vertical align fixes for webkit browsers only */
-  -webkit-margin-before: -0.15em;
-
-  -webkit-transition: color .2s;
-  transition: color .2s;
+  transition: color .2s, opacity .2s;
 }
 
 .vue__time-picker .controls > *:hover {
@@ -2140,8 +2212,46 @@ export default {
   outline: 0;
 }
 
-.vue__time-picker .time-picker-overlay {
+.vue__time-picker .controls .char {
+  font-size: 1.1em;
+  line-height: 100%;
+
+  /* Vertical align fixes for webkit browsers only */
+  -webkit-margin-before: -0.15em;
+}
+
+.vue__time-picker .custom-icon {
   z-index: 2;
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 1.8em;
+
+  display: flex;
+  flex-flow: column nowrap;
+  justify-content: center;
+  align-items: center;
+
+  /* pass down mouse events to the <input> underneath */
+  pointer-events: none;
+}
+
+.vue__time-picker .custom-icon img,
+.vue__time-picker .custom-icon svg,
+.vue__time-picker .controls img,
+.vue__time-picker .controls svg {
+  display: inline-block;
+  vertical-align: middle;
+  margin: 0;
+  border: 0;
+  outline: 0;
+  max-width: 1em;
+  height: auto;
+}
+
+.vue__time-picker .time-picker-overlay {
+  z-index: 4;
   position: fixed;
   top: 0;
   left: 0;
@@ -2159,6 +2269,11 @@ export default {
   width: 10em;
   height: 10em;
   font-weight: normal;
+}
+
+.vue__time-picker .dropdown.drop-up {
+  top: auto;
+  bottom: calc(2.2em + 1px);
 }
 
 .vue__time-picker .dropdown .select-list {
